@@ -5,11 +5,159 @@ local config = {
 	partials_dirs = { "_partials", "_fragments", "_code" },
 	components_dir = nil, -- Will default to ./src/components if not set
 	allowed_site_paths = { "^docs/_" }, -- Any underscore directory under docs/
+	-- External repos configuration
+	external_repos_dir = nil, -- Defaults to XDG data dir
+	docs_branch_name = "docs-updates", -- Branch name for documentation changes
+}
+
+-- Module state for external repos
+local state = {
+	active_repo = nil, -- Currently selected external repo
 }
 
 function M.setup(user_config)
 	-- Merge user config with defaults
 	config = vim.tbl_deep_extend("force", config, user_config or {})
+end
+
+-- ========================================
+-- External Repos Helper Functions
+-- ========================================
+
+-- Get XDG data directory for storing external repos
+local function get_xdg_data_dir()
+	if config.external_repos_dir then
+		return vim.fn.expand(config.external_repos_dir)
+	end
+	return vim.fn.stdpath("data") .. "/docusaurus/repos"
+end
+
+-- Get path to repos registry file
+local function get_registry_path()
+	return get_xdg_data_dir() .. "/repos.json"
+end
+
+-- Load repos registry from disk
+local function load_repos_registry()
+	local registry_path = get_registry_path()
+	if vim.fn.filereadable(registry_path) ~= 1 then
+		return { repos = {} }
+	end
+
+	local lines = vim.fn.readfile(registry_path)
+	local content = table.concat(lines, "\n")
+
+	local ok, decoded = pcall(vim.fn.json_decode, content)
+	if not ok or not decoded then
+		return { repos = {} }
+	end
+
+	return decoded
+end
+
+-- Save repos registry to disk
+local function save_repos_registry(registry)
+	local registry_path = get_registry_path()
+	local dir = vim.fn.fnamemodify(registry_path, ":h")
+
+	-- Ensure directory exists
+	if vim.fn.isdirectory(dir) ~= 1 then
+		vim.fn.mkdir(dir, "p")
+	end
+
+	local content = vim.fn.json_encode(registry)
+	local file = io.open(registry_path, "w")
+	if file then
+		file:write(content)
+		file:close()
+		return true
+	end
+	return false
+end
+
+-- Get full path to a cloned repo
+local function get_repo_path(repo_name)
+	return get_xdg_data_dir() .. "/" .. repo_name
+end
+
+-- Find repo in registry by name
+local function find_repo_by_name(name)
+	local registry = load_repos_registry()
+	for _, repo in ipairs(registry.repos) do
+		if repo.name == name then
+			return repo
+		end
+	end
+	return nil
+end
+
+-- Get default branch of a repository
+local function get_default_branch(repo_path)
+	local cmd = string.format("cd '%s' && git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}'", repo_path)
+	local result = vim.fn.system(cmd):gsub("%s+", "")
+
+	if vim.v.shell_error ~= 0 or result == "" then
+		-- Fallback: try to detect from local refs
+		local fallback_cmd = string.format("cd '%s' && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'", repo_path)
+		result = vim.fn.system(fallback_cmd):gsub("%s+", "")
+
+		if result == "" then
+			return "main" -- Default fallback
+		end
+	end
+
+	return result
+end
+
+-- Get current branch of a repository
+local function get_current_branch(repo_path)
+	local cmd = string.format("cd '%s' && git branch --show-current", repo_path)
+	local result = vim.fn.system(cmd):gsub("%s+", "")
+	return result
+end
+
+-- Ensure docs-updates branch exists and is checked out
+local function ensure_docs_branch(repo_path)
+	local branch_name = config.docs_branch_name
+	local current_branch = get_current_branch(repo_path)
+
+	-- Already on the docs branch
+	if current_branch == branch_name then
+		return true, "Already on " .. branch_name .. " branch"
+	end
+
+	-- Check if branch exists
+	local check_cmd = string.format("cd '%s' && git show-ref --verify --quiet refs/heads/%s", repo_path, branch_name)
+	vim.fn.system(check_cmd)
+	local branch_exists = vim.v.shell_error == 0
+
+	if branch_exists then
+		-- Checkout existing branch
+		local checkout_cmd = string.format("cd '%s' && git checkout %s 2>&1", repo_path, branch_name)
+		local output = vim.fn.system(checkout_cmd)
+		if vim.v.shell_error ~= 0 then
+			return false, "Failed to checkout " .. branch_name .. ": " .. output
+		end
+		return true, "Switched to " .. branch_name .. " branch"
+	else
+		-- Create new branch from default branch
+		local default_branch = get_default_branch(repo_path)
+		local create_cmd = string.format("cd '%s' && git checkout -b %s %s 2>&1", repo_path, branch_name, default_branch)
+		local output = vim.fn.system(create_cmd)
+		if vim.v.shell_error ~= 0 then
+			return false, "Failed to create " .. branch_name .. " branch: " .. output
+		end
+		return true, "Created and switched to " .. branch_name .. " branch from " .. default_branch
+	end
+end
+
+-- Derive repo name from git URL
+local function derive_repo_name(git_url)
+	-- Handle various git URL formats
+	local name = git_url:match("([^/]+)%.git$")
+		or git_url:match("([^/]+)$")
+		or "repo"
+	return name
 end
 
 -- ========================================
@@ -1369,8 +1517,379 @@ function M.browse_api()
 		:find()
 end
 
+-- ========================================
+-- External Repos Management Functions
+-- ========================================
+
+-- Import a new external Docusaurus repository
+function M.import_repo()
+	-- Prompt for git URL
+	local git_url = vim.fn.input("Git repository URL: ")
+	if git_url == "" then
+		print("Cancelled: No URL provided")
+		return
+	end
+
+	-- Prompt for repo name with default derived from URL
+	local default_name = derive_repo_name(git_url)
+	local repo_name = vim.fn.input("Repository name: ", default_name)
+	if repo_name == "" then
+		repo_name = default_name
+	end
+
+	-- Prompt for docusaurus root path
+	local docusaurus_root = vim.fn.input("Path to Docusaurus root (relative): ", ".")
+	if docusaurus_root == "" then
+		docusaurus_root = "."
+	end
+
+	-- Check if repo already exists
+	local existing = find_repo_by_name(repo_name)
+	local repo_path = get_repo_path(repo_name)
+
+	if existing then
+		print(string.format("Repository '%s' already exists. Using existing clone.", repo_name))
+	else
+		-- Ensure base directory exists
+		local base_dir = get_xdg_data_dir()
+		if vim.fn.isdirectory(base_dir) ~= 1 then
+			vim.fn.mkdir(base_dir, "p")
+		end
+
+		-- Clone the repository
+		print(string.format("Cloning %s...", git_url))
+		local clone_cmd = string.format("git clone '%s' '%s' 2>&1", git_url, repo_path)
+		local output = vim.fn.system(clone_cmd)
+
+		if vim.v.shell_error ~= 0 then
+			print("Failed to clone repository: " .. output)
+			return
+		end
+
+		-- Add to registry
+		local registry = load_repos_registry()
+		table.insert(registry.repos, {
+			name = repo_name,
+			git_url = git_url,
+			docusaurus_root = docusaurus_root,
+			cloned_at = os.date("%Y-%m-%dT%H:%M:%S"),
+		})
+
+		if not save_repos_registry(registry) then
+			print("Warning: Failed to save registry")
+		end
+
+		print(string.format("Repository cloned to: %s", repo_path))
+	end
+
+	-- Ensure docs-updates branch
+	local success, message = ensure_docs_branch(repo_path)
+	print(message)
+
+	-- Set as active repo
+	state.active_repo = {
+		name = repo_name,
+		path = repo_path,
+		docusaurus_root = docusaurus_root,
+	}
+
+	print(string.format("Active repo set to: %s", repo_name))
+end
+
+-- Select an external repo using Telescope picker
+function M.select_repo()
+	local registry = load_repos_registry()
+
+	if vim.tbl_isempty(registry.repos) then
+		print("No external repos found. Use :DocusaurusImportRepo to add one.")
+		return
+	end
+
+	local pickers = require("telescope.pickers")
+	local finders = require("telescope.finders")
+	local conf = require("telescope.config").values
+	local actions = require("telescope.actions")
+	local action_state = require("telescope.actions.state")
+	local previewers = require("telescope.previewers")
+
+	pickers
+		.new({}, {
+			prompt_title = "Select Docusaurus Repository",
+			finder = finders.new_table({
+				results = registry.repos,
+				entry_maker = function(entry)
+					local display = string.format("%s [%s]", entry.name, entry.git_url)
+					return {
+						value = entry,
+						display = display,
+						ordinal = entry.name:lower(),
+					}
+				end,
+			}),
+			sorter = conf.generic_sorter({}),
+			previewer = previewers.new_buffer_previewer({
+				title = "Repository Info",
+				define_preview = function(self, entry)
+					local repo = entry.value
+					local repo_path = get_repo_path(repo.name)
+					local current_branch = get_current_branch(repo_path)
+
+					local lines = {
+						"Name: " .. repo.name,
+						"Git URL: " .. repo.git_url,
+						"Docusaurus Root: " .. repo.docusaurus_root,
+						"Cloned At: " .. (repo.cloned_at or "Unknown"),
+						"",
+						"Local Path: " .. repo_path,
+						"Current Branch: " .. current_branch,
+					}
+
+					vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+				end,
+			}),
+			attach_mappings = function(prompt_bufnr)
+				actions.select_default:replace(function()
+					local selection = action_state.get_selected_entry()
+					local repo = selection.value
+					actions.close(prompt_bufnr)
+
+					local repo_path = get_repo_path(repo.name)
+
+					-- Ensure docs-updates branch
+					local success, message = ensure_docs_branch(repo_path)
+					print(message)
+
+					-- Set as active repo
+					state.active_repo = {
+						name = repo.name,
+						path = repo_path,
+						docusaurus_root = repo.docusaurus_root,
+					}
+
+					print(string.format("Active repo set to: %s", repo.name))
+				end)
+				return true
+			end,
+		})
+		:find()
+end
+
+-- Remove an external repo from registry
+function M.remove_repo()
+	local registry = load_repos_registry()
+
+	if vim.tbl_isempty(registry.repos) then
+		print("No external repos found.")
+		return
+	end
+
+	local pickers = require("telescope.pickers")
+	local finders = require("telescope.finders")
+	local conf = require("telescope.config").values
+	local actions = require("telescope.actions")
+	local action_state = require("telescope.actions.state")
+
+	pickers
+		.new({}, {
+			prompt_title = "Select Repository to Remove",
+			finder = finders.new_table({
+				results = registry.repos,
+				entry_maker = function(entry)
+					local display = string.format("%s [%s]", entry.name, entry.git_url)
+					return {
+						value = entry,
+						display = display,
+						ordinal = entry.name:lower(),
+					}
+				end,
+			}),
+			sorter = conf.generic_sorter({}),
+			attach_mappings = function(prompt_bufnr)
+				actions.select_default:replace(function()
+					local selection = action_state.get_selected_entry()
+					local repo = selection.value
+					actions.close(prompt_bufnr)
+
+					-- Confirm deletion
+					local choice = vim.fn.confirm(
+						string.format("Remove '%s'?", repo.name),
+						"&Remove from registry only\n&Delete files too\n&Cancel",
+						3
+					)
+
+					if choice == 3 or choice == 0 then
+						print("Cancelled")
+						return
+					end
+
+					-- Remove from registry
+					local new_repos = {}
+					for _, r in ipairs(registry.repos) do
+						if r.name ~= repo.name then
+							table.insert(new_repos, r)
+						end
+					end
+					registry.repos = new_repos
+					save_repos_registry(registry)
+
+					-- Delete files if requested
+					if choice == 2 then
+						local repo_path = get_repo_path(repo.name)
+						vim.fn.delete(repo_path, "rf")
+						print(string.format("Removed '%s' and deleted files", repo.name))
+					else
+						print(string.format("Removed '%s' from registry (files kept)", repo.name))
+					end
+
+					-- Clear active repo if it was the removed one
+					if state.active_repo and state.active_repo.name == repo.name then
+						state.active_repo = nil
+					end
+				end)
+				return true
+			end,
+		})
+		:find()
+end
+
+-- Commit changes and push to remote
+function M.commit_and_push()
+	if not state.active_repo then
+		print("No active repo. Use :DocusaurusSelectRepo first.")
+		return
+	end
+
+	local repo_path = state.active_repo.path
+	local branch_name = config.docs_branch_name
+
+	-- Check current branch
+	local current_branch = get_current_branch(repo_path)
+	if current_branch ~= branch_name then
+		print(string.format("Not on %s branch. Current: %s", branch_name, current_branch))
+		return
+	end
+
+	-- Check for changes
+	local status_cmd = string.format("cd '%s' && git status --porcelain", repo_path)
+	local status = vim.fn.system(status_cmd):gsub("%s+$", "")
+
+	if status == "" then
+		print("No changes to commit")
+		return
+	end
+
+	-- Show status
+	print("Changes to commit:")
+	print(status)
+
+	-- Prompt for commit message
+	local commit_msg = vim.fn.input("Commit message: ")
+	if commit_msg == "" then
+		print("Cancelled: No commit message")
+		return
+	end
+
+	-- Stage all changes
+	local add_cmd = string.format("cd '%s' && git add -A 2>&1", repo_path)
+	vim.fn.system(add_cmd)
+
+	-- Commit
+	local commit_cmd = string.format("cd '%s' && git commit -m '%s' 2>&1", repo_path, commit_msg:gsub("'", "'\\''"))
+	local commit_output = vim.fn.system(commit_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Failed to commit: " .. commit_output)
+		return
+	end
+
+	print("Committed successfully")
+
+	-- Push to remote
+	local push_cmd = string.format("cd '%s' && git push -u origin %s 2>&1", repo_path, branch_name)
+	local push_output = vim.fn.system(push_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Failed to push: " .. push_output)
+		return
+	end
+
+	print(string.format("Pushed to origin/%s", branch_name))
+end
+
+-- Sync repo with upstream (pull latest from default branch)
+function M.sync_repo()
+	if not state.active_repo then
+		print("No active repo. Use :DocusaurusSelectRepo first.")
+		return
+	end
+
+	local repo_path = state.active_repo.path
+	local branch_name = config.docs_branch_name
+	local default_branch = get_default_branch(repo_path)
+
+	print(string.format("Syncing with %s...", default_branch))
+
+	-- Fetch latest
+	local fetch_cmd = string.format("cd '%s' && git fetch origin 2>&1", repo_path)
+	local fetch_output = vim.fn.system(fetch_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Failed to fetch: " .. fetch_output)
+		return
+	end
+
+	-- Stash any local changes
+	local stash_cmd = string.format("cd '%s' && git stash 2>&1", repo_path)
+	vim.fn.system(stash_cmd)
+
+	-- Checkout default branch and pull
+	local checkout_default_cmd = string.format("cd '%s' && git checkout %s 2>&1", repo_path, default_branch)
+	local checkout_output = vim.fn.system(checkout_default_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Failed to checkout " .. default_branch .. ": " .. checkout_output)
+		return
+	end
+
+	local pull_cmd = string.format("cd '%s' && git pull origin %s 2>&1", repo_path, default_branch)
+	local pull_output = vim.fn.system(pull_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Failed to pull: " .. pull_output)
+		return
+	end
+
+	-- Switch back to docs branch
+	local checkout_docs_cmd = string.format("cd '%s' && git checkout %s 2>&1", repo_path, branch_name)
+	vim.fn.system(checkout_docs_cmd)
+
+	-- Merge default branch into docs branch
+	local merge_cmd = string.format("cd '%s' && git merge %s 2>&1", repo_path, default_branch)
+	local merge_output = vim.fn.system(merge_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Merge conflict or error: " .. merge_output)
+		print("Please resolve conflicts manually in: " .. repo_path)
+		return
+	end
+
+	-- Pop stash if there was one
+	local stash_pop_cmd = string.format("cd '%s' && git stash pop 2>&1", repo_path)
+	vim.fn.system(stash_pop_cmd)
+
+	print(string.format("Synced %s with %s", branch_name, default_branch))
+end
+
+-- Get active repo info (for other commands to use)
+function M.get_active_repo()
+	return state.active_repo
+end
+
 -- Expose internal functions for testing
 M.get_version_context = get_version_context
 M.path_matches_context = path_matches_context
+M.get_xdg_data_dir = get_xdg_data_dir
+M.load_repos_registry = load_repos_registry
+M.save_repos_registry = save_repos_registry
 
 return M
