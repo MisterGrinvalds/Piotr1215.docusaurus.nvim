@@ -61,3 +61,24 @@ end, { desc = "Show active repo's doc path" })
 vim.api.nvim_create_user_command("DocusaurusCreateSymlink", function()
 	require("docusaurus").create_symlink()
 end, { desc = "Create symlink to active repo in current directory" })
+
+-- Docusaurus build commands
+vim.api.nvim_create_user_command("DocusaurusStart", function()
+	require("docusaurus").start_dev_server()
+end, { desc = "Start Docusaurus development server" })
+
+vim.api.nvim_create_user_command("DocusaurusBuild", function()
+	require("docusaurus").build_site()
+end, { desc = "Build Docusaurus site" })
+
+vim.api.nvim_create_user_command("DocusaurusServe", function()
+	require("docusaurus").serve_site()
+end, { desc = "Serve built Docusaurus site" })
+
+vim.api.nvim_create_user_command("DocusaurusClear", function()
+	require("docusaurus").clear_cache()
+end, { desc = "Clear Docusaurus cache" })
+
+vim.api.nvim_create_user_command("DocusaurusInstall", function()
+	require("docusaurus").install_deps()
+end, { desc = "Install Docusaurus dependencies" })

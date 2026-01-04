@@ -2070,6 +2070,133 @@ function M.sync_repo()
 	print(string.format("Synced %s with %s", branch_name, default_branch))
 end
 
+-- ========================================
+-- Docusaurus Build Commands
+-- ========================================
+
+-- Helper to get the docusaurus working directory
+local function get_docusaurus_dir()
+	if not state.active_repo then
+		return nil, "No active repo. Use :DocusaurusSelectRepo first."
+	end
+
+	local repo_path = state.active_repo.path
+	local docusaurus_root = state.active_repo.docusaurus_root or "."
+
+	local doc_dir
+	if docusaurus_root == "." then
+		doc_dir = repo_path
+	else
+		doc_dir = repo_path .. "/" .. docusaurus_root
+	end
+
+	-- Verify docusaurus.config.js exists
+	local config_js = doc_dir .. "/docusaurus.config.js"
+	local config_ts = doc_dir .. "/docusaurus.config.ts"
+	if vim.fn.filereadable(config_js) ~= 1 and vim.fn.filereadable(config_ts) ~= 1 then
+		return nil, "No docusaurus.config.js/ts found in: " .. doc_dir
+	end
+
+	return doc_dir, nil
+end
+
+-- Start the Docusaurus development server
+function M.start_dev_server()
+	local doc_dir, err = get_docusaurus_dir()
+	if not doc_dir then
+		print(err)
+		return
+	end
+
+	print("Starting Docusaurus dev server in: " .. doc_dir)
+	print("Press Ctrl+C in the terminal to stop the server")
+
+	-- Open a terminal with npm start
+	local cmd = string.format("cd '%s' && npm start", doc_dir)
+	vim.cmd("terminal " .. cmd)
+end
+
+-- Build the Docusaurus site
+function M.build_site()
+	local doc_dir, err = get_docusaurus_dir()
+	if not doc_dir then
+		print(err)
+		return
+	end
+
+	print("Building Docusaurus site in: " .. doc_dir)
+
+	-- Open a terminal with npm run build
+	local cmd = string.format("cd '%s' && npm run build", doc_dir)
+	vim.cmd("terminal " .. cmd)
+end
+
+-- Serve the built Docusaurus site
+function M.serve_site()
+	local doc_dir, err = get_docusaurus_dir()
+	if not doc_dir then
+		print(err)
+		return
+	end
+
+	-- Check if build directory exists
+	local build_dir = doc_dir .. "/build"
+	if vim.fn.isdirectory(build_dir) ~= 1 then
+		print("No build directory found. Run :DocusaurusBuild first.")
+		return
+	end
+
+	print("Serving Docusaurus site from: " .. doc_dir)
+	print("Press Ctrl+C in the terminal to stop the server")
+
+	-- Open a terminal with npm run serve
+	local cmd = string.format("cd '%s' && npm run serve", doc_dir)
+	vim.cmd("terminal " .. cmd)
+end
+
+-- Clear Docusaurus cache
+function M.clear_cache()
+	local doc_dir, err = get_docusaurus_dir()
+	if not doc_dir then
+		print(err)
+		return
+	end
+
+	print("Clearing Docusaurus cache in: " .. doc_dir)
+
+	-- Run npm run clear (or docusaurus clear)
+	local cmd = string.format("cd '%s' && npm run clear 2>&1", doc_dir)
+	local output = vim.fn.system(cmd)
+
+	if vim.v.shell_error ~= 0 then
+		-- Try docusaurus clear directly if npm run clear fails
+		cmd = string.format("cd '%s' && npx docusaurus clear 2>&1", doc_dir)
+		output = vim.fn.system(cmd)
+
+		if vim.v.shell_error ~= 0 then
+			print("Failed to clear cache: " .. output)
+			return
+		end
+	end
+
+	print("Cache cleared successfully")
+end
+
+-- Install dependencies for Docusaurus project
+function M.install_deps()
+	local doc_dir, err = get_docusaurus_dir()
+	if not doc_dir then
+		print(err)
+		return
+	end
+
+	print("Installing dependencies in: " .. doc_dir)
+
+	-- Open a terminal with npm install
+	local cmd = string.format("cd '%s' && npm install", doc_dir)
+	vim.cmd("terminal " .. cmd)
+end
+
 -- Get active repo info (for other commands to use)
 function M.get_active_repo()
 	return state.active_repo
