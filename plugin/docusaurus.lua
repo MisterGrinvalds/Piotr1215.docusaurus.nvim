@@ -42,6 +42,10 @@ vim.api.nvim_create_user_command("DocusaurusRemoveRepo", function()
 	require("docusaurus").remove_repo()
 end, { desc = "Remove an external Docusaurus repository" })
 
+vim.api.nvim_create_user_command("DocusaurusUpdateRepo", function()
+	require("docusaurus").update_repo()
+end, { desc = "Update an external Docusaurus repository configuration" })
+
 vim.api.nvim_create_user_command("DocusaurusCommitAndPush", function()
 	require("docusaurus").commit_and_push()
 end, { desc = "Commit and push changes to the active repo" })

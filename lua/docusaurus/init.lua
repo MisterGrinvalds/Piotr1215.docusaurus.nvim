@@ -34,7 +34,84 @@ end
 
 -- Get path to repos registry file
 local function get_registry_path()
-	return get_xdg_data_dir() .. "/repos.json"
+	return get_xdg_data_dir() .. "/repos.yaml"
+end
+
+-- Parse simple YAML format for repos registry
+-- Supports format:
+-- repos:
+--   - name: value
+--     git_url: value
+--     docusaurus_root: value
+--     cloned_at: value
+local function parse_yaml(content)
+	local registry = { repos = {} }
+	if not content or content == "" then
+		return registry
+	end
+
+	local current_repo = nil
+	local in_repos_list = false
+
+	for line in content:gmatch("[^\r\n]+") do
+		-- Skip empty lines and comments
+		if line:match("^%s*$") or line:match("^%s*#") then
+			-- skip
+		elseif line:match("^repos:%s*$") then
+			in_repos_list = true
+		elseif in_repos_list then
+			-- Check for new list item (starts with "  - ")
+			local first_key, first_value = line:match("^%s*%-%s*([%w_]+):%s*(.*)$")
+			if first_key then
+				-- Save previous repo if exists
+				if current_repo then
+					table.insert(registry.repos, current_repo)
+				end
+				-- Start new repo
+				current_repo = {}
+				-- Remove quotes from value if present
+				first_value = first_value:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
+				current_repo[first_key] = first_value
+			else
+				-- Check for continuation key-value pair (starts with spaces, no dash)
+				local key, value = line:match("^%s+([%w_]+):%s*(.*)$")
+				if key and current_repo then
+					-- Remove quotes from value if present
+					value = value:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
+					current_repo[key] = value
+				end
+			end
+		end
+	end
+
+	-- Don't forget the last repo
+	if current_repo then
+		table.insert(registry.repos, current_repo)
+	end
+
+	return registry
+end
+
+-- Serialize registry to YAML format
+local function serialize_yaml(registry)
+	local lines = { "repos:" }
+
+	for _, repo in ipairs(registry.repos or {}) do
+		-- First field with dash
+		table.insert(lines, string.format("  - name: %s", repo.name or ""))
+		-- Remaining fields indented
+		if repo.git_url then
+			table.insert(lines, string.format("    git_url: %s", repo.git_url))
+		end
+		if repo.docusaurus_root then
+			table.insert(lines, string.format("    docusaurus_root: %s", repo.docusaurus_root))
+		end
+		if repo.cloned_at then
+			table.insert(lines, string.format('    cloned_at: "%s"', repo.cloned_at))
+		end
+	end
+
+	return table.concat(lines, "\n") .. "\n"
 end
 
 -- Load repos registry from disk
@@ -47,12 +124,12 @@ local function load_repos_registry()
 	local lines = vim.fn.readfile(registry_path)
 	local content = table.concat(lines, "\n")
 
-	local ok, decoded = pcall(vim.fn.json_decode, content)
-	if not ok or not decoded then
+	local ok, result = pcall(parse_yaml, content)
+	if not ok or not result then
 		return { repos = {} }
 	end
 
-	return decoded
+	return result
 end
 
 -- Save repos registry to disk
@@ -65,7 +142,7 @@ local function save_repos_registry(registry)
 		vim.fn.mkdir(dir, "p")
 	end
 
-	local content = vim.fn.json_encode(registry)
+	local content = serialize_yaml(registry)
 	local file = io.open(registry_path, "w")
 	if file then
 		file:write(content)
@@ -1752,6 +1829,119 @@ function M.remove_repo()
 		:find()
 end
 
+-- Update an external repo's configuration
+function M.update_repo()
+	local registry = load_repos_registry()
+
+	if vim.tbl_isempty(registry.repos) then
+		print("No external repos found. Use :DocusaurusImportRepo to add one.")
+		return
+	end
+
+	local pickers = require("telescope.pickers")
+	local finders = require("telescope.finders")
+	local conf = require("telescope.config").values
+	local actions = require("telescope.actions")
+	local action_state = require("telescope.actions.state")
+
+	pickers
+		.new({}, {
+			prompt_title = "Select Repository to Update",
+			finder = finders.new_table({
+				results = registry.repos,
+				entry_maker = function(entry)
+					local display = string.format("%s [%s]", entry.name, entry.git_url)
+					return {
+						value = entry,
+						display = display,
+						ordinal = entry.name:lower(),
+					}
+				end,
+			}),
+			sorter = conf.generic_sorter({}),
+			attach_mappings = function(prompt_bufnr)
+				actions.select_default:replace(function()
+					local selection = action_state.get_selected_entry()
+					local repo = selection.value
+					local old_name = repo.name
+					actions.close(prompt_bufnr)
+
+					-- Prompt for new values with current as default
+					print(string.format("Updating '%s' - press Enter to keep current value", old_name))
+
+					local new_name = vim.fn.input("Name: ", repo.name)
+					if new_name == "" then
+						new_name = repo.name
+					end
+
+					local new_git_url = vim.fn.input("Git URL: ", repo.git_url)
+					if new_git_url == "" then
+						new_git_url = repo.git_url
+					end
+
+					local new_docusaurus_root = vim.fn.input("Docusaurus root: ", repo.docusaurus_root)
+					if new_docusaurus_root == "" then
+						new_docusaurus_root = repo.docusaurus_root
+					end
+
+					-- Check if anything changed
+					if new_name == repo.name and new_git_url == repo.git_url and new_docusaurus_root == repo.docusaurus_root then
+						print("No changes made")
+						return
+					end
+
+					-- Check for name collision if name changed
+					if new_name ~= old_name then
+						for _, r in ipairs(registry.repos) do
+							if r.name == new_name then
+								print(string.format("Error: A repo named '%s' already exists", new_name))
+								return
+							end
+						end
+
+						-- Rename the cloned directory
+						local old_path = get_repo_path(old_name)
+						local new_path = get_repo_path(new_name)
+
+						if vim.fn.isdirectory(old_path) == 1 then
+							local mv_cmd = string.format("mv '%s' '%s' 2>&1", old_path, new_path)
+							local output = vim.fn.system(mv_cmd)
+							if vim.v.shell_error ~= 0 then
+								print("Failed to rename directory: " .. output)
+								return
+							end
+						end
+					end
+
+					-- Update registry entry
+					for i, r in ipairs(registry.repos) do
+						if r.name == old_name then
+							registry.repos[i].name = new_name
+							registry.repos[i].git_url = new_git_url
+							registry.repos[i].docusaurus_root = new_docusaurus_root
+							break
+						end
+					end
+
+					if save_repos_registry(registry) then
+						print(string.format("Updated repo '%s'", new_name))
+					else
+						print("Warning: Failed to save registry")
+					end
+
+					-- Update active repo if it was the one we modified
+					if state.active_repo and state.active_repo.name == old_name then
+						state.active_repo.name = new_name
+						state.active_repo.path = get_repo_path(new_name)
+						state.active_repo.docusaurus_root = new_docusaurus_root
+					end
+				end)
+				return true
+			end,
+		})
+		:find()
+end
+
 -- Commit changes and push to remote
 function M.commit_and_push()
 	if not state.active_repo then
@@ -2010,5 +2200,7 @@ M.path_matches_context = path_matches_context
 M.get_xdg_data_dir = get_xdg_data_dir
 M.load_repos_registry = load_repos_registry
 M.save_repos_registry = save_repos_registry
+M.parse_yaml = parse_yaml
+M.serialize_yaml = serialize_yaml
 
 return M
