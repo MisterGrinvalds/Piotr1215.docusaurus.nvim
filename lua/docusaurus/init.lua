@@ -21,6 +21,111 @@ function M.setup(user_config)
 end
 
 -- ========================================
+-- Subcommand Registry
+-- ========================================
+
+local subcommands = {
+	-- Insert commands
+	insert_component = { fn = "select_component", desc = "Insert a component" },
+	insert_partial = { fn = "select_partial", desc = "Insert a partial" },
+	insert_codeblock = { fn = "select_code_block", desc = "Insert a code block" },
+	insert_url = { fn = "insert_url_reference", desc = "Insert a URL reference" },
+	-- Repo management
+	repo_import = { fn = "import_repo", desc = "Import external repo" },
+	repo_select = { fn = "select_repo", desc = "Select active repo" },
+	repo_remove = { fn = "remove_repo", desc = "Remove repo" },
+	repo_update = { fn = "update_repo", desc = "Update repo config" },
+	repo_push = { fn = "commit_and_push", desc = "Commit and push" },
+	repo_sync = { fn = "sync_repo", desc = "Sync with upstream" },
+	repo_path = { fn = "show_doc_path", desc = "Show doc path" },
+	repo_symlink = { fn = "create_symlink", desc = "Create symlink" },
+	-- Build commands
+	start = { fn = "start_dev_server", desc = "Start dev server" },
+	build = { fn = "build_site", desc = "Build site" },
+	serve = { fn = "serve_site", desc = "Serve built site" },
+	clear = { fn = "clear_cache", desc = "Clear cache" },
+	install = { fn = "install_deps", desc = "Install dependencies" },
+	-- Other
+	create_plugin = { fn = "create_plugin", desc = "Scaffold plugin" },
+	browse_api = { fn = "browse_api", desc = "Browse API docs" },
+}
+
+-- Get sorted list of subcommand names (for tab completion)
+function M.get_subcommands()
+	local cmds = {}
+	for name, _ in pairs(subcommands) do
+		table.insert(cmds, name)
+	end
+	table.sort(cmds)
+	return cmds
+end
+
+-- Show Telescope picker for selecting a subcommand
+function M.show_command_picker()
+	local pickers = require("telescope.pickers")
+	local finders = require("telescope.finders")
+	local conf = require("telescope.config").values
+	local actions = require("telescope.actions")
+	local action_state = require("telescope.actions.state")
+
+	-- Build entries list sorted by name
+	local entries = {}
+	for name, cmd in pairs(subcommands) do
+		table.insert(entries, { name = name, desc = cmd.desc, fn = cmd.fn })
+	end
+	table.sort(entries, function(a, b)
+		return a.name < b.name
+	end)
+
+	pickers
+		.new({}, {
+			prompt_title = "Docusaurus Commands",
+			finder = finders.new_table({
+				results = entries,
+				entry_maker = function(entry)
+					return {
+						value = entry,
+						display = string.format("%-20s %s", entry.name, entry.desc),
+						ordinal = entry.name,
+					}
+				end,
+			}),
+			sorter = conf.generic_sorter({}),
+			attach_mappings = function(prompt_bufnr)
+				actions.select_default:replace(function()
+					local selection = action_state.get_selected_entry()
+					actions.close(prompt_bufnr)
+					-- Call the selected function
+					M[selection.value.fn]()
+				end)
+				return true
+			end,
+		})
+		:find()
+end
+
+-- Main command dispatcher
+function M.run_command(opts)
+	local cmd = opts.args
+
+	if cmd == "" then
+		-- No args: open Telescope picker
+		M.show_command_picker()
+		return
+	end
+
+	local subcmd = subcommands[cmd]
+	if not subcmd then
+		print("Unknown subcommand: " .. cmd)
+		print("Run :Docusaurus to see available commands")
+		return
+	end
+
+	-- Call the function
+	M[subcmd.fn]()
+end
+
+-- ========================================
 -- External Repos Helper Functions
 -- ========================================
 
