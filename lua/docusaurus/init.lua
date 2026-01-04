@@ -15,6 +15,15 @@ local state = {
 	active_repo = nil, -- Currently selected external repo
 }
 
+-- Safe input wrapper that handles <esc> gracefully
+local function safe_input(prompt, default)
+	local ok, result = pcall(vim.fn.input, prompt, default or "")
+	if not ok then
+		return nil -- User pressed <esc>
+	end
+	return result
+end
+
 function M.setup(user_config)
 	-- Merge user config with defaults
 	config = vim.tbl_deep_extend("force", config, user_config or {})
@@ -633,7 +642,10 @@ function M.select_code_block()
 				local partial_name = M.to_camel_case(partial_path)
 
 				-- Prompt for the component name with default value
-				partial_name = vim.fn.input("Name the code block: ", partial_name)
+				partial_name = safe_input("Name the code block: ", partial_name)
+				if partial_name == nil then
+					return -- User cancelled
+				end
 
 				-- Switch back to the original window and buffer
 				vim.api.nvim_set_current_win(current_win)
@@ -882,7 +894,10 @@ local function insert_url_reference(bufnr, target_path)
 	local default_text = M.to_readable_text(target_path)
 
 	-- Prompt for link text with default value
-	local link_text = vim.fn.input("Enter link text: ", default_text)
+	local link_text = safe_input("Enter link text: ", default_text)
+	if link_text == nil then
+		return -- User cancelled
+	end
 	if link_text == "" then
 		link_text = default_text
 	end
@@ -1008,7 +1023,10 @@ function M.select_partial()
 					local partial_name = M.to_camel_case(partial_path)
 
 					-- Prompt for the component name with default value
-					partial_name = vim.fn.input("Name the partial: ", partial_name)
+					partial_name = safe_input("Name the partial: ", partial_name)
+					if partial_name == nil then
+						return -- User cancelled
+					end
 
 					-- Close Telescope before switching back
 					actions.close(prompt_bufnr)
@@ -1466,8 +1484,8 @@ end
 
 -- Interactive plugin scaffolder command
 function M.create_plugin()
-	local name = vim.fn.input("Plugin name: ", "my-plugin")
-	if name == "" then
+	local name = safe_input("Plugin name: ", "my-plugin")
+	if name == nil or name == "" then
 		return
 	end
 
@@ -1706,21 +1724,27 @@ end
 -- Import a new external Docusaurus repository
 function M.import_repo()
 	-- Prompt for git URL
-	local git_url = vim.fn.input("Git repository URL: ")
-	if git_url == "" then
+	local git_url = safe_input("Git repository URL: ")
+	if git_url == nil or git_url == "" then
 		print("Cancelled: No URL provided")
 		return
 	end
 
 	-- Prompt for repo name with default derived from URL
 	local default_name = derive_repo_name(git_url)
-	local repo_name = vim.fn.input("Repository name: ", default_name)
+	local repo_name = safe_input("Repository name: ", default_name)
+	if repo_name == nil then
+		return -- User cancelled
+	end
 	if repo_name == "" then
 		repo_name = default_name
 	end
 
 	-- Prompt for docusaurus root path
-	local docusaurus_root = vim.fn.input("Path to Docusaurus root (relative): ", ".")
+	local docusaurus_root = safe_input("Path to Docusaurus root (relative): ", ".")
+	if docusaurus_root == nil then
+		return -- User cancelled
+	end
 	if docusaurus_root == "" then
 		docusaurus_root = "."
 	end
@@ -1974,17 +1998,26 @@ function M.update_repo()
 					-- Prompt for new values with current as default
 					print(string.format("Updating '%s' - press Enter to keep current value", old_name))
 
-					local new_name = vim.fn.input("Name: ", repo.name)
+					local new_name = safe_input("Name: ", repo.name)
+					if new_name == nil then
+						return -- User cancelled
+					end
 					if new_name == "" then
 						new_name = repo.name
 					end
 
-					local new_git_url = vim.fn.input("Git URL: ", repo.git_url)
+					local new_git_url = safe_input("Git URL: ", repo.git_url)
+					if new_git_url == nil then
+						return -- User cancelled
+					end
 					if new_git_url == "" then
 						new_git_url = repo.git_url
 					end
 
-					local new_docusaurus_root = vim.fn.input("Docusaurus root: ", repo.docusaurus_root)
+					local new_docusaurus_root = safe_input("Docusaurus root: ", repo.docusaurus_root)
+					if new_docusaurus_root == nil then
+						return -- User cancelled
+					end
 					if new_docusaurus_root == "" then
 						new_docusaurus_root = repo.docusaurus_root
 					end
@@ -2078,8 +2111,8 @@ function M.commit_and_push()
 	print(status)
 
 	-- Prompt for commit message
-	local commit_msg = vim.fn.input("Commit message: ")
-	if commit_msg == "" then
+	local commit_msg = safe_input("Commit message: ")
+	if commit_msg == nil or commit_msg == "" then
 		print("Cancelled: No commit message")
 		return
 	end
@@ -2350,8 +2383,8 @@ function M.create_symlink()
 
 	-- Prompt for symlink name
 	local default_name = state.active_repo.name .. "-docs"
-	local link_name = vim.fn.input("Symlink name: ", default_name)
-	if link_name == "" then
+	local link_name = safe_input("Symlink name: ", default_name)
+	if link_name == nil or link_name == "" then
 		print("Cancelled: No symlink name provided")
 		return
 	end
