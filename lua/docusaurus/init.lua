@@ -1807,7 +1807,7 @@ function M.select_repo()
 	local registry = load_repos_registry()
 
 	if vim.tbl_isempty(registry.repos) then
-		print("No external repos found. Use :DocusaurusImportRepo to add one.")
+		print("No external repos found. Use :Docusaurus repo_import to add one.")
 		return
 	end
 
@@ -1963,7 +1963,7 @@ function M.update_repo()
 	local registry = load_repos_registry()
 
 	if vim.tbl_isempty(registry.repos) then
-		print("No external repos found. Use :DocusaurusImportRepo to add one.")
+		print("No external repos found. Use :Docusaurus repo_import to add one.")
 		return
 	end
 
@@ -2083,7 +2083,7 @@ end
 -- Commit changes and push to remote
 function M.commit_and_push()
 	if not state.active_repo then
-		print("No active repo. Use :DocusaurusSelectRepo first.")
+		print("No active repo. Use :Docusaurus repo_select first.")
 		return
 	end
 
@@ -2147,7 +2147,7 @@ end
 -- Sync repo with upstream (pull latest from default branch)
 function M.sync_repo()
 	if not state.active_repo then
-		print("No active repo. Use :DocusaurusSelectRepo first.")
+		print("No active repo. Use :Docusaurus repo_select first.")
 		return
 	end
 
@@ -2215,7 +2215,7 @@ end
 -- Helper to get the docusaurus working directory
 local function get_docusaurus_dir()
 	if not state.active_repo then
-		return nil, "No active repo. Use :DocusaurusSelectRepo first."
+		return nil, "No active repo. Use :Docusaurus repo_select first."
 	end
 
 	local repo_path = state.active_repo.path
@@ -2280,7 +2280,7 @@ function M.serve_site()
 	-- Check if build directory exists
 	local build_dir = doc_dir .. "/build"
 	if vim.fn.isdirectory(build_dir) ~= 1 then
-		print("No build directory found. Run :DocusaurusBuild first.")
+		print("No build directory found. Run :Docusaurus build first.")
 		return
 	end
 
@@ -2343,7 +2343,7 @@ end
 -- Print the current doc target path
 function M.show_doc_path()
 	if not state.active_repo then
-		print("No active repo. Use :DocusaurusSelectRepo first.")
+		print("No active repo. Use :Docusaurus repo_select first.")
 		return
 	end
 
@@ -2366,7 +2366,7 @@ end
 -- Create a symlink in the current working directory to the active repo
 function M.create_symlink()
 	if not state.active_repo then
-		print("No active repo. Use :DocusaurusSelectRepo first.")
+		print("No active repo. Use :Docusaurus repo_select first.")
 		return
 	end
 

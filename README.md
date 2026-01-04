@@ -10,6 +10,8 @@ Neovim plugin for Docusaurus documentation workflows with version-aware content 
 - **Smart Imports**: Auto-detects `@site` vs relative imports based on project structure
 - **Content Management**: Insert components, partials, code blocks, and URL references
 - **Plugin Tools**: Scaffold new plugins and browse Docusaurus API
+- **External Repo Management**: Work with external Docusaurus repositories
+- **Build Commands**: Start dev server, build, serve, and manage dependencies
 
 ## Requirements
 
@@ -36,27 +38,58 @@ Neovim plugin for Docusaurus documentation workflows with version-aware content 
 ```lua
 require("docusaurus").setup()
 
--- Content insertion
-vim.keymap.set("n", "<leader>ic", "<cmd>DocusaurusInsertComponent<cr>")
-vim.keymap.set("n", "<leader>ip", "<cmd>DocusaurusInsertPartial<cr>")
-vim.keymap.set("n", "<leader>ib", "<cmd>DocusaurusInsertCodeBlock<cr>")
-vim.keymap.set("n", "<leader>iu", "<cmd>DocusaurusInsertURL<cr>")
+-- Single entry point - opens Telescope picker with all commands
+vim.keymap.set("n", "<leader>d", "<cmd>Docusaurus<cr>")
 
--- Plugin tools
-vim.keymap.set("n", "<leader>dpc", "<cmd>DocusaurusCreatePlugin<cr>")
-vim.keymap.set("n", "<leader>dpa", "<cmd>DocusaurusBrowseAPI<cr>")
+-- Or bind specific subcommands directly
+vim.keymap.set("n", "<leader>ic", "<cmd>Docusaurus insert_component<cr>")
+vim.keymap.set("n", "<leader>ip", "<cmd>Docusaurus insert_partial<cr>")
+vim.keymap.set("n", "<leader>ib", "<cmd>Docusaurus insert_codeblock<cr>")
+vim.keymap.set("n", "<leader>iu", "<cmd>Docusaurus insert_url<cr>")
 ```
 
 ## Commands
 
+All commands are accessed via `:Docusaurus [subcommand]`. Running `:Docusaurus` without arguments opens a Telescope picker.
+
+### Content Insertion
+
 | Command | Description |
 |---------|-------------|
-| `:DocusaurusInsertComponent` | Insert component from `src/components` |
-| `:DocusaurusInsertPartial` | Insert partial from `_partials`, `_fragments`, `_code` directories |
-| `:DocusaurusInsertCodeBlock` | Insert code block with raw-loader import |
-| `:DocusaurusInsertURL` | Insert markdown link to documentation file |
-| `:DocusaurusCreatePlugin` | Scaffold new Docusaurus plugin |
-| `:DocusaurusBrowseAPI` | Browse Docusaurus configuration API |
+| `:Docusaurus insert_component` | Insert component from `src/components` |
+| `:Docusaurus insert_partial` | Insert partial from `_partials`, `_fragments`, `_code` directories |
+| `:Docusaurus insert_codeblock` | Insert code block with raw-loader import |
+| `:Docusaurus insert_url` | Insert markdown link to documentation file |
+
+### External Repo Management
+
+| Command | Description |
+|---------|-------------|
+| `:Docusaurus repo_import` | Import external Docusaurus repository |
+| `:Docusaurus repo_select` | Select active repository |
+| `:Docusaurus repo_remove` | Remove repository |
+| `:Docusaurus repo_update` | Update repository config |
+| `:Docusaurus repo_push` | Commit and push changes |
+| `:Docusaurus repo_sync` | Sync with upstream |
+| `:Docusaurus repo_path` | Show documentation path |
+| `:Docusaurus repo_symlink` | Create symlink to repo |
+
+### Build Commands
+
+| Command | Description |
+|---------|-------------|
+| `:Docusaurus start` | Start development server |
+| `:Docusaurus build` | Build the site |
+| `:Docusaurus serve` | Serve built site |
+| `:Docusaurus clear` | Clear cache |
+| `:Docusaurus install` | Install dependencies |
+
+### Other
+
+| Command | Description |
+|---------|-------------|
+| `:Docusaurus create_plugin` | Scaffold new Docusaurus plugin |
+| `:Docusaurus browse_api` | Browse Docusaurus configuration API |
 
 ## Version-Aware Filtering
 
@@ -89,6 +122,13 @@ require("docusaurus").setup({
   -- Path patterns that use @site imports (non-versioned content)
   -- Default: { "^docs/_" } matches any docs/_* directory
   allowed_site_paths = { "^docs/_" },
+
+  -- Directory for storing external repos
+  -- Default: XDG data directory
+  external_repos_dir = nil,
+
+  -- Branch name for documentation changes in external repos
+  docs_branch_name = "docs-updates",
 })
 ```
 
@@ -133,6 +173,23 @@ docusaurus.insert_url_reference()
 -- Plugin tools
 docusaurus.create_plugin()
 docusaurus.browse_api()
+
+-- External repo management
+docusaurus.import_repo()
+docusaurus.select_repo()
+docusaurus.remove_repo()
+docusaurus.update_repo()
+docusaurus.commit_and_push()
+docusaurus.sync_repo()
+docusaurus.show_doc_path()
+docusaurus.create_symlink()
+
+-- Build commands
+docusaurus.start_dev_server()
+docusaurus.build_site()
+docusaurus.serve_site()
+docusaurus.clear_cache()
+docusaurus.install_deps()
 
 -- Utility
 docusaurus.generate_plugin_template(opts)

@@ -21,6 +21,8 @@ Key Features:
 - Smart import management (@site vs relative)
 - Telescope-based content insertion
 - Plugin scaffolding and API browsing
+- External repository management
+- Build commands (start, build, serve, clear, install)
 
 ==============================================================================
 2. REQUIREMENTS                                         *docusaurus-requirements*
@@ -45,33 +47,83 @@ Using lazy.nvim: >lua
 ==============================================================================
 4. COMMANDS                                                *docusaurus-commands*
 
-Content Insertion Commands ~
+All commands are accessed via `:Docusaurus [subcommand]`.
+Running `:Docusaurus` without arguments opens a Telescope picker.
 
-:DocusaurusInsertComponent                      *:DocusaurusInsertComponent*
+Content Insertion Commands ~
+                                                                    *:Docusaurus*
+:Docusaurus
+    Open Telescope picker with all available subcommands.
+
+:Docusaurus insert_component                      *:Docusaurus-insert_component*
     Insert a component from `src/components` directory.
 
-:DocusaurusInsertPartial                          *:DocusaurusInsertPartial*
+:Docusaurus insert_partial                          *:Docusaurus-insert_partial*
     Insert a partial from `_partials`, `_fragments`, or `_code` directories.
     Filtered by current version context.
     Root docs/_* partials appear first in results.
     Skips import if name already exists. Cursor lands on component tag.
 
-:DocusaurusInsertCodeBlock                      *:DocusaurusInsertCodeBlock*
+:Docusaurus insert_codeblock                      *:Docusaurus-insert_codeblock*
     Insert a code block with raw-loader import.
     Filtered by current version context.
 
-:DocusaurusInsertURL                                  *:DocusaurusInsertURL*
+:Docusaurus insert_url                                  *:Docusaurus-insert_url*
     Insert a markdown link to another documentation file.
     Uses relative paths from current file.
     Filtered by current version context.
 
+External Repo Management Commands ~
+
+:Docusaurus repo_import                              *:Docusaurus-repo_import*
+    Import an external Docusaurus repository.
+    Prompts for git URL, repo name, and Docusaurus root path.
+
+:Docusaurus repo_select                              *:Docusaurus-repo_select*
+    Select active repository from imported repos.
+
+:Docusaurus repo_remove                              *:Docusaurus-repo_remove*
+    Remove an imported repository.
+
+:Docusaurus repo_update                              *:Docusaurus-repo_update*
+    Update repository configuration (name, URL, root path).
+
+:Docusaurus repo_push                                  *:Docusaurus-repo_push*
+    Commit and push changes in the active repository.
+
+:Docusaurus repo_sync                                  *:Docusaurus-repo_sync*
+    Sync active repository with upstream.
+
+:Docusaurus repo_path                                  *:Docusaurus-repo_path*
+    Show the documentation path for the active repository.
+
+:Docusaurus repo_symlink                            *:Docusaurus-repo_symlink*
+    Create a symlink to the active repository.
+
+Build Commands ~
+
+:Docusaurus start                                          *:Docusaurus-start*
+    Start the Docusaurus development server.
+
+:Docusaurus build                                          *:Docusaurus-build*
+    Build the Docusaurus site.
+
+:Docusaurus serve                                          *:Docusaurus-serve*
+    Serve the built site locally.
+
+:Docusaurus clear                                          *:Docusaurus-clear*
+    Clear the Docusaurus cache.
+
+:Docusaurus install                                      *:Docusaurus-install*
+    Install project dependencies.
+
 Plugin Management Commands ~
 
-:DocusaurusCreatePlugin                            *:DocusaurusCreatePlugin*
+:Docusaurus create_plugin                          *:Docusaurus-create_plugin*
     Scaffold a new Docusaurus plugin. Prompts for plugin name and type
     (lifecycle, content, or theme).
 
-:DocusaurusBrowseAPI                                  *:DocusaurusBrowseAPI*
+:Docusaurus browse_api                                *:Docusaurus-browse_api*
     Browse Docusaurus configuration API options. Fetches latest docs from
     GitHub and displays in Telescope with examples.
 
@@ -83,6 +135,8 @@ Default configuration: >lua
     components_dir = nil, -- auto-detects {git-root}/src/components
     partials_dirs = { "_partials", "_fragments", "_code" },
     allowed_site_paths = { "^docs/_" }, -- matches all docs/_* directories
+    external_repos_dir = nil, -- defaults to XDG data directory
+    docs_branch_name = "docs-updates", -- branch for doc changes
   }
 <
 
@@ -101,34 +155,41 @@ allowed_site_paths                            *docusaurus-allowed_site_paths*
     All other paths use relative imports.
     Default: { "^docs/_" } (matches all docs/_* directories)
 
+external_repos_dir                            *docusaurus-external_repos_dir*
+    Directory for storing cloned external repositories.
+    Default: XDG data directory (~/.local/share/nvim/docusaurus/repos)
+
+docs_branch_name                                *docusaurus-docs_branch_name*
+    Branch name used for documentation changes in external repos.
+    Default: "docs-updates"
+
 Version Context Filtering ~
 
 The plugin detects your current file's version context and filters results:
 
-• vcluster_versioned_docs/version-0.20.x/guide.mdx
-  → Partials: version-0.20.x/_partials + root docs/_* folders
-  → URLs: Only version-0.20.x docs
-  → Excludes other versions and projects
+* vcluster_versioned_docs/version-0.20.x/guide.mdx
+  -> Partials: version-0.20.x/_partials + root docs/_* folders
+  -> URLs: Only version-0.20.x docs
+  -> Excludes other versions and projects
 
-• vcluster/install/guide.mdx (main folder)
-  → Partials: vcluster/_partials + root docs/_* folders
-  → URLs: Only vcluster/ docs
-  → Excludes platform/ and versioned folders
+* vcluster/install/guide.mdx (main folder)
+  -> Partials: vcluster/_partials + root docs/_* folders
+  -> URLs: Only vcluster/ docs
+  -> Excludes platform/ and versioned folders
 
-• docs/shared-guide.mdx (non-versioned)
-  → Shows all files (no filtering)
+* docs/shared-guide.mdx (non-versioned)
+  -> Shows all files (no filtering)
 
 Keymaps Example ~
 >lua
-  -- Content insertion
-  vim.keymap.set("n", "<leader>ic", "<cmd>DocusaurusInsertComponent<cr>")
-  vim.keymap.set("n", "<leader>ip", "<cmd>DocusaurusInsertPartial<cr>")
-  vim.keymap.set("n", "<leader>ib", "<cmd>DocusaurusInsertCodeBlock<cr>")
-  vim.keymap.set("n", "<leader>iu", "<cmd>DocusaurusInsertURL<cr>")
+  -- Single entry point - opens Telescope picker
+  vim.keymap.set("n", "<leader>d", "<cmd>Docusaurus<cr>")
 
-  -- Plugin tools
-  vim.keymap.set("n", "<leader>dpc", "<cmd>DocusaurusCreatePlugin<cr>")
-  vim.keymap.set("n", "<leader>dpa", "<cmd>DocusaurusBrowseAPI<cr>")
+  -- Or bind specific subcommands
+  vim.keymap.set("n", "<leader>ic", "<cmd>Docusaurus insert_component<cr>")
+  vim.keymap.set("n", "<leader>ip", "<cmd>Docusaurus insert_partial<cr>")
+  vim.keymap.set("n", "<leader>ib", "<cmd>Docusaurus insert_codeblock<cr>")
+  vim.keymap.set("n", "<leader>iu", "<cmd>Docusaurus insert_url<cr>")
 <
 
 ==============================================================================
@@ -158,6 +219,49 @@ docusaurus.select_code_block()                    *docusaurus.select_code_block(
 docusaurus.insert_url_reference()              *docusaurus.insert_url_reference()*
     Open Telescope picker to select a file and insert URL reference.
     Filtered by current version context.
+
+External Repo Management Functions ~
+
+docusaurus.import_repo()                            *docusaurus.import_repo()*
+    Import an external Docusaurus repository.
+
+docusaurus.select_repo()                            *docusaurus.select_repo()*
+    Select active repository from imported repos.
+
+docusaurus.remove_repo()                            *docusaurus.remove_repo()*
+    Remove an imported repository.
+
+docusaurus.update_repo()                            *docusaurus.update_repo()*
+    Update repository configuration.
+
+docusaurus.commit_and_push()                    *docusaurus.commit_and_push()*
+    Commit and push changes in active repository.
+
+docusaurus.sync_repo()                                *docusaurus.sync_repo()*
+    Sync active repository with upstream.
+
+docusaurus.show_doc_path()                        *docusaurus.show_doc_path()*
+    Show documentation path for active repository.
+
+docusaurus.create_symlink()                      *docusaurus.create_symlink()*
+    Create symlink to active repository.
+
+Build Functions ~
+
+docusaurus.start_dev_server()                  *docusaurus.start_dev_server()*
+    Start the Docusaurus development server.
+
+docusaurus.build_site()                              *docusaurus.build_site()*
+    Build the Docusaurus site.
+
+docusaurus.serve_site()                              *docusaurus.serve_site()*
+    Serve the built site locally.
+
+docusaurus.clear_cache()                            *docusaurus.clear_cache()*
+    Clear the Docusaurus cache.
+
+docusaurus.install_deps()                          *docusaurus.install_deps()*
+    Install project dependencies.
 
 Plugin Management Functions ~
 
