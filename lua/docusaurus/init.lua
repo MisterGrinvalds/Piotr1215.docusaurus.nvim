@@ -1885,6 +1885,125 @@ function M.get_active_repo()
 	return state.active_repo
 end
 
+-- Print the current doc target path
+function M.show_doc_path()
+	if not state.active_repo then
+		print("No active repo. Use :DocusaurusSelectRepo first.")
+		return
+	end
+
+	local repo_path = state.active_repo.path
+	local docusaurus_root = state.active_repo.docusaurus_root or "."
+
+	-- Build full path to docusaurus content
+	local doc_path
+	if docusaurus_root == "." then
+		doc_path = repo_path
+	else
+		doc_path = repo_path .. "/" .. docusaurus_root
+	end
+
+	print("Active repo: " .. state.active_repo.name)
+	print("Doc path: " .. doc_path)
+	return doc_path
+end
+
+-- Create a symlink in the current working directory to the active repo
+function M.create_symlink()
+	if not state.active_repo then
+		print("No active repo. Use :DocusaurusSelectRepo first.")
+		return
+	end
+
+	local repo_path = state.active_repo.path
+	local docusaurus_root = state.active_repo.docusaurus_root or "."
+
+	-- Build full path to docusaurus content
+	local target_path
+	if docusaurus_root == "." then
+		target_path = repo_path
+	else
+		target_path = repo_path .. "/" .. docusaurus_root
+	end
+
+	-- Prompt for symlink name
+	local default_name = state.active_repo.name .. "-docs"
+	local link_name = vim.fn.input("Symlink name: ", default_name)
+	if link_name == "" then
+		print("Cancelled: No symlink name provided")
+		return
+	end
+
+	local cwd = vim.fn.getcwd()
+	local link_path = cwd .. "/" .. link_name
+
+	-- Check if symlink already exists
+	if vim.fn.filereadable(link_path) == 1 or vim.fn.isdirectory(link_path) == 1 then
+		local overwrite = vim.fn.confirm(
+			string.format("'%s' already exists. Overwrite?", link_name),
+			"&Yes\n&No",
+			2
+		)
+		if overwrite ~= 1 then
+			print("Cancelled")
+			return
+		end
+		vim.fn.delete(link_path, "rf")
+	end
+
+	-- Create symlink
+	local ln_cmd = string.format("ln -s '%s' '%s' 2>&1", target_path, link_path)
+	local output = vim.fn.system(ln_cmd)
+
+	if vim.v.shell_error ~= 0 then
+		print("Failed to create symlink: " .. output)
+		return
+	end
+
+	print(string.format("Created symlink: %s -> %s", link_name, target_path))
+
+	-- Check if we're in a git repo and offer to add to .gitignore
+	local git_root = vim.fn.system("git rev-parse --show-toplevel 2>/dev/null"):gsub("%s+", "")
+	if vim.v.shell_error == 0 and git_root ~= "" then
+		local add_to_gitignore = vim.fn.confirm(
+			"Add symlink to .gitignore?",
+			"&Yes\n&No",
+			1
+		)
+
+		if add_to_gitignore == 1 then
+			local gitignore_path = git_root .. "/.gitignore"
+
+			-- Check if already in .gitignore
+			local already_ignored = false
+			if vim.fn.filereadable(gitignore_path) == 1 then
+				local lines = vim.fn.readfile(gitignore_path)
+				for _, line in ipairs(lines) do
+					if line == link_name or line == "/" .. link_name then
+						already_ignored = true
+						break
+					end
+				end
+			end
+
+			if already_ignored then
+				print("Already in .gitignore")
+			else
+				-- Append to .gitignore
+				local file = io.open(gitignore_path, "a")
+				if file then
+					file:write("\n# Docusaurus docs symlink\n")
+					file:write(link_name .. "\n")
+					file:close()
+					print("Added '" .. link_name .. "' to .gitignore")
+				else
+					print("Warning: Could not write to .gitignore")
+				end
+			end
+		end
+	end
+end
+
 -- Expose internal functions for testing
 M.get_version_context = get_version_context
 M.path_matches_context = path_matches_context

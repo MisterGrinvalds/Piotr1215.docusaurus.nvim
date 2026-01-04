@@ -49,3 +49,11 @@ end, { desc = "Commit and push changes to the active repo" })
 vim.api.nvim_create_user_command("DocusaurusSyncRepo", function()
 	require("docusaurus").sync_repo()
 end, { desc = "Sync active repo with upstream" })
+
+vim.api.nvim_create_user_command("DocusaurusShowPath", function()
+	require("docusaurus").show_doc_path()
+end, { desc = "Show active repo's doc path" })
+
+vim.api.nvim_create_user_command("DocusaurusCreateSymlink", function()
+	require("docusaurus").create_symlink()
+end, { desc = "Create symlink to active repo in current directory" })
